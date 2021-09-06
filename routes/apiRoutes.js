@@ -8,9 +8,10 @@ const specs = require('../models/specs')
 const cart = require('../models/cart')
 const orders = require('../models/orders')
 const order_items = require('../models/order_items')
+const { Op } = require('sequelize')
 
 // calls for category
-router.get("/category/all", (req, res)=>{
+router.get("/category/", (req, res)=>{
     db.category.findAll().then(category => res.send(category))
 
 })
@@ -24,7 +25,7 @@ router.get('/category/:id', (req, res)=>{
     }).then(category => res.send(category))
 })
 
-router.post('/category/new', (req, res)=>{
+router.post('/category', (req, res)=>{
     db.category.create({
         // cId: req.body.cId,
         title: req.body.title,
@@ -43,41 +44,81 @@ router.delete('/delete/:id', (req, res)=>{
 })
 
 //calls for prod
-router.get("/products/All", (req, res)=>{
-    db.prod.findAll({
+router.get("/products/", async(req, res)=>{
+    
+    const catId = req.query.catId;
+    const brId = req.query.brId;
+    const stri = req.query.stri;
+
+    const searchQuery = {
+        $like : Op.like
+    }
+    const filter = {
+        where: {},
         include: [{
-            model : db.brand,
-            // model : db.category,
-        
-        
-
-        }, {
-            model : db.category,
-
-        }, {
-            model : db.specs,
-        }]
-    }).then(prod => res.send(prod))
-
+            model: db.brand,
+        }],
+    };
+    if (catId) {
+        filter.where.categoryId = catId;
+    }
+    if (brId) {
+        filter.where.brandId = brId;
+    }
+    if (req.query.stri) {
+        filter.where = {
+            [Op.or] : [
+                {title: {[Op.iLike]: `%${stri}%`}},
+                {'$brand.name$' : {[Op.iLike]: `%${stri}%`}}
+            ]
+        }
+    }
+    console.log(filter);
+    let list = await db.prod.findAll(filter);
+    res.send(list);  
 })
 router.get('/products/:id', (req, res)=>{
     console.log('hello')
-    db.prod.findAll({
+    db.prod.findOne({
         where: {
             id: req.params.id
-        }
+        },
+            include : [{
+                model : db.category,
+            }, {
+                model : db.brand,
+            }, {
+                model : db.specs,
+            }]
+        
     }).then(prod => res.send(prod))
 })
-router.post('/products/new', async(req, res)=>{
-    const prod_details = await db.prod.create({
-        // pId: req.body.pId,
-        title: req.body.title,
-        price: req.body.price,
-        ratings: req.body.ratings,
-        brandId: req.body.brandId,
-        categoryId: req.body.categoryId
-    })
-    const array = []; 
+router.post('/products', async(req, res)=>{
+    const brand_data = await db.brand.findOne({
+        where: {id : req.body.brandId}
+    });
+    const cat_data = await db.category.findOne({
+        where : {id : req.body.categoryId}
+    });
+    if(!cat_data && !brand_data){
+        res.send("check category and brand")
+    }
+    else if(!cat_data){
+        res.send("Please check the category.")
+    }
+    else if(!brand_data){
+        res.send("Please check the brand.")
+    }
+    else{
+        const prod_details = await db.prod.create({
+            // pId: req.body.pId,
+            title: req.body.title,
+            price: req.body.price,
+            ratings: req.body.ratings,
+            brandId: req.body.brandId,
+            categoryId: req.body.categoryId
+        })
+        const array = []; 
     req.body.spec.forEach((element, index)=> {
         array.push({
             name : element.name,
@@ -87,19 +128,103 @@ router.post('/products/new', async(req, res)=>{
 
      })
     const spec_data = await db.specs.bulkCreate(array, {returning : true})
-
-
-    
-
     res.send(prod_details)
-
-
-
-        
-
-
-    // }).then(submitedProd => res.send(submitedProd))
+    }  
 })
+
+router.put('/product/:id', async (req, res)=>{
+    const ProdU = await db.prod.update({
+        categoryId: req.body.categoryId,
+        brandId: req.body.brandId
+    }, {
+        where: {
+            id: req.params.id
+        }
+    })
+
+    const Spec_data = await db.specs.findAll({
+            where : {productId : req.params.id}
+    })
+  
+
+    var flag = 0;
+    const arr1 = []
+    const arr2 = []
+    const arr3 = []
+
+    req.body.spec.forEach((element, index) =>{
+        Spec_data.forEach((elt, idx) =>{
+            if(element.id === elt.id){
+                flag = 1;
+            }
+            
+        })
+        if(flag === 1 && element.method === "update"){
+            arr1.push({
+                specId: element.id,
+                name : element.name,
+                value : element.value,
+                productId : req.params.id
+            })
+
+        }
+        else if(element.method === "update" && flag === 0){
+            arr2.push({
+                name : element.name,
+                value : element.value,
+                productId : req.params.id
+            })
+        }
+        else if (element.method === "delete" && flag === 1){
+            arr3.push({
+                specId : element.id,
+                name : element.name,
+                value : element.value,
+                productId : req.params.id
+            })
+
+        }
+    })
+
+    await db.specs.bulkCreate(arr2, {returning : true})
+
+    for(let i = 0; i < arr1.length; i++){
+        await db.specs.update({
+                    name : arr1[i].name,
+                    value: arr1[i].value,
+                    productId : req.params.id
+                }, {
+                    where : {id : arr1[i].specId}
+                })
+                
+
+    }
+
+    for(let j = 0; j < arr3.length; j++){
+        await db.specs.destroy({
+                    where : {id : arr3[j].specId}
+                })
+                
+
+    }
+
+
+
+
+    const data = await db.prod.findOne({
+        where : {id : req.params.id},
+        include : [{
+            model : db.brand,
+    }, {
+            model : db.category,
+    }, {
+            model : db.specs,
+    }]
+})
+
+    res.send(data)
+})
+
 router.delete('/delete/products/:id', (req, res)=>{
     db.prod.destroy({
         where:{
@@ -109,7 +234,7 @@ router.delete('/delete/products/:id', (req, res)=>{
 })
 
 //brand calls
-router.get("/brand/all", (req, res)=>{
+router.get("/brand/", (req, res)=>{
     db.brand.findAll().then(brand => res.send(brand))
 
 })
@@ -123,7 +248,7 @@ router.get('/brand/:id', (req, res)=>{
     }).then(brand => res.send(brand))
 })
 
-router.post('/brand/new', (req, res)=>{
+router.post('/brand', (req, res)=>{
     db.brand.create({
         // bId: req.body.bId,
         name: req.body.name,
@@ -140,44 +265,7 @@ router.delete('/delete/brand/:id', (req, res)=>{
     }).then(() => res.send('success'))
 })
 
-
-//calls for specs
-router.get("/specs/all", (req, res)=>{
-    db.specs.findAll().then(specs => res.send(specs))
-
-})
-
-router.get('/specs/:id', (req, res)=>{
-    console.log('hello')
-    db.specs.findAll({
-        where: {
-            id: req.params.id
-        }
-    }).then(specs => res.send(specs))
-})
-
-router.post('/specs/new', (req, res)=>{
-    db.specs.create({
-        // id: req.body.id,
-        name: req.body.name,
-        value: req.body.value,
-        productId: req.body.productId
-        
-
-
-    }).then(submitedSpecs => res.send(submitedSpecs))
-})
-router.delete('/delete/specs/:id', (req, res)=>{
-    db.specs.destroy({
-        where:{
-            id: req.params.id
-        }
-    }).then(() => res.send('success'))
-})
-
-//calls for cart
-
-router.get("/cart/all", (req, res)=>{
+router.get("/cart/", (req, res)=>{
     db.cart.findAll({
         where : {flag : 1},
         include: [{
@@ -209,29 +297,40 @@ router.get("/cart/:cartId", (req, res)=>{
 
 
 
-router.post('/cart/new', async (req, res)=>{
-    const cart_details = await db.cart.findOne({
-        where: {flag : 1,
-        productId: req.body.productId}
+router.post('/cart', async (req, res)=>{
+    const prod_det = await db.prod.findOne({
+        where : {id : req.body.productId}
     })
-    console.log(cart_details)
 
-    if(!cart_details){
-        const created_details = await db.cart.create({
-            // cartId: req.body.cartId,
-            qty: req.body.qty,
-            productId: req.body.productId
-        })
-        res.send(created_details)
+    if(!prod_det){
+        res.send("Product does not exist")
     }
     else{
-        const updated_details = await db.cart.update({
-            qty: cart_details.qty + req.body.qty,
-        },{
-        where : {id : cart_details.id},
+        const cart_details = await db.cart.findOne({
+            where: {flag : 1,
+            productId: req.body.productId}
         })
-        res.send(updated_details)
+        
+    
+        if(!cart_details){
+            const created_details = await db.cart.create({
+                // cartId: req.body.cartId,
+                qty: req.body.qty,
+                productId: req.body.productId
+            })
+            res.send(created_details)
+        }
+        else{
+            const updated_details = await db.cart.update({
+                qty: cart_details.qty + req.body.qty,
+            },{
+            where : {id : cart_details.id},
+            })
+            res.send(updated_details)
+        }
+
     }
+
     
     
 
@@ -247,7 +346,7 @@ router.delete('/delete/cart/:id', (req, res)=>{
 
 //calls for orders
 
-router.post('/checkout', async (req, res)=>{
+router.post('/checkout/', async (req, res)=>{
     const cart_data = await db.cart.findAll({
         where : {flag : 1},
         include: [{
@@ -312,105 +411,6 @@ router.post('/checkout', async (req, res)=>{
     res.send(order_d);
 
 
-    }
-    
-
-
-
-    // }).then(submitedOrders => res.send(submitedOrders))
-    // // function myFunction(item, arr){
-    // // }
-    // console.log(arr[1])
-    
-    
+    }       
 })
-
-// router.get("/orders/all", (req, res)=>{
-//     db.orders.findAll().then(orders => res.send(orders))
-
-// })
-
-// router.delete('/delete/orders/:id', (req, res)=>{
-//     db.orders.destroy({
-//         where:{
-//             id: req.params.id
-//         }
-//     }).then(() => res.send('success'))
-// })
-
-// //calls for order items
-
-
-// // router.post('/buyNow', async (req, res)=>{
-// //     const cart_datas = await db.cart.findAll({
-// //         where :{
-// //             flag:1
-// //         }
-// //     });
-
-// //     console.log(JSON.parse(JSON.stringify(cart_datas)))
-
-// //     const cartsJSON = JSON.parse(JSON.stringify(cart_datas));
-// //     const arrr = [];
-// // cartsJSON.forEach((element, index) => {
-// //         arrr.push({
-// //             // oiId: index + 1,
-// //             // qty: element.qty,
-            
-// //             pId: element.productId,
-            
-// //         })
-// //     });
-        
-// //     await db.order_items.bulkCreate(arrr, {returning: true})
-// // })
-
-// router.get("/order_items/all", (req, res)=>{
-//     db.order_items.findAll({
-        
-//         include: [{
-//             model : db.prod,
-            
-        
-        
-
-//         }, {
-//             model : db.orders,
-
-//         }],
-        
-        
-//     }).then(order_items => res.send(order_items))
-
-// })
-
-// router.delete('/delete/order_items/:id', (req, res)=>{
-//     db.order_items.destroy({
-//         where:{
-//             id: req.params.id
-//         }
-//     }).then(() => res.send('success'))
-// })
-
-
-
-
-
-
-
-
-// router.put('/edit/:id', (req, res)=>{
-//     console.log(req.params)
-//     db.prod.update({
-//         title: req.body.title,
-//         price: req.body.price,
-//         ratings: req.body.ratings,
-//         categoryId: req.body.categoryId,
-//         brandId: req.body.brandId
-//     }, {
-//         where: {
-//             id: req.params.id
-//         }
-//     }).then(()=> res.send('success'))
-// })
 module.exports = router
