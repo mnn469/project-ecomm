@@ -57,6 +57,10 @@ router.get("/products/", async(req, res)=>{
         where: {},
         include: [{
             model: db.brand,
+        }, {
+            model : db.category,
+        }, {
+            model : db.specs,
         }],
     };
     if (catId) {
@@ -413,4 +417,26 @@ router.post('/checkout/', async (req, res)=>{
 
     }       
 })
+
+router.get("/orders/", async(req, res)=>{
+    const order_dat = await db.orders.findAll({
+        where:{},
+         
+        
+    })
+
+    res.send(order_dat)
+
+})
+
+router.get("/order_items/", async(req, res)=>{
+    const order_it_dat = await db.order_items.findAll({
+        where:{},
+    })
+
+    res.send(order_it_dat)
+
+})
+
+
 module.exports = router

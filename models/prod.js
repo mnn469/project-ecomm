@@ -32,21 +32,7 @@ module.exports = (sequelize, DataTypes)=>{
         foreignKey: "productId"
 
     });
-    // prod.associate = function(models){
-    //     prod.belongsTo(models.brand, {
-    //         foreignKey: {
-    //             name : "bId"
-
-    //         } 
-    //     })
-    // }
-    // prod.associate = function(models){
-    //     prod.hasMany(models.specs), {
-    //         foreignKey: {
-    //             name : "pId"
-    //         }
-    //     }
-    // }
+    
 }
 
     return prod
